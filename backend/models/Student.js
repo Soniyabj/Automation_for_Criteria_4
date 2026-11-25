@@ -19,7 +19,7 @@ const studentSchema = new mongoose.Schema({
   // Result Sheet Fields
   sno: Number,
   name: String,
-  usn: { type: String, required: true },
+  usn: { type: String, required: true, trim: true, uppercase: true },
   sem: [semSchema],
   year: [yearSchema],
   finalResult: { type: String, default: '' },
@@ -42,5 +42,6 @@ const studentSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 studentSchema.index({ branch: 1, batchName: 1, usn: 1 }, { unique: true });
+studentSchema.index({ usn: 1 }, { unique: true });
 
 module.exports = mongoose.model('Student', studentSchema);

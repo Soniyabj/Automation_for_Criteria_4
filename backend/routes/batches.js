@@ -26,6 +26,10 @@ const offerLetterUpload = multer({
     filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname),
   }),
   limits: { fileSize: 2 * 1024 * 1024 }, // 2MB
+  fileFilter: (req, file, cb) => {
+    const allowed = ['application/pdf', 'image/jpeg', 'image/png'];
+    cb(allowed.includes(file.mimetype) ? null : new Error('Only PDF, JPEG, and PNG files are allowed'), allowed.includes(file.mimetype));
+  },
 });
 
 // ---------------- Helpers ----------------
@@ -200,7 +204,7 @@ router.post('/:branch/:batchName/import', auth, upload.single('file'), async (re
 
     if (!Array.isArray(rows) || rows.length === 0) {
       console.log('Import: parsed zero rows; returning imported:0 (keeps empty as-is)');
-      return res.json({ imported: 0, created: 0, updated: 0, skipped: 0 });
+      return res.json({ importedRows: 0, created: 0, updated: 0, skipped: 0, duplicateRecords: 0, rowErrors: [] });
     }
 
     // existing students
@@ -209,6 +213,9 @@ router.post('/:branch/:batchName/import', auth, upload.single('file'), async (re
 
     const created = [];
     const updated = [];
+    const duplicateRecords = [];
+    const rowErrors = [];
+    const seenInFile = new Set();
     let skipped = 0;
     let processedRows = 0;
 
@@ -218,6 +225,25 @@ router.post('/:branch/:batchName/import', auth, upload.single('file'), async (re
         const usn = (r.usn || '').toString().trim().toUpperCase();
         if (!usn) {
           skipped++;
+          rowErrors.push({ row: processedRows, reason: 'Missing USN' });
+          continue;
+        }
+
+        if (seenInFile.has(usn)) {
+          skipped++;
+          duplicateRecords.push({ row: processedRows, usn, reason: 'Duplicate USN within uploaded file' });
+          rowErrors.push({ row: processedRows, usn, reason: 'Duplicate USN within uploaded file' });
+          continue;
+        }
+        seenInFile.add(usn);
+
+        const crossBatchStudent = await Student.findOne({ usn });
+        if (crossBatchStudent &&
+            (String(crossBatchStudent.branch) !== String(branch) ||
+             String(crossBatchStudent.batchName) !== String(batchName))) {
+          skipped++;
+          duplicateRecords.push({ row: processedRows, usn, reason: 'USN already exists in another batch' });
+          rowErrors.push({ row: processedRows, usn, reason: 'USN already exists in another batch' });
           continue;
         }
 
@@ -293,6 +319,7 @@ router.post('/:branch/:batchName/import', auth, upload.single('file'), async (re
       } catch (rowErr) {
         // Do not fail whole import for a single bad row — count as skipped and log
         skipped++;
+        rowErrors.push({ row: processedRows, usn: r.usn || '', reason: rowErr.message || 'Invalid student record' });
         console.error('Error processing imported row:', rowErr && rowErr.stack ? rowErr.stack : rowErr, { row: r });
         continue;
       }
@@ -310,6 +337,8 @@ router.post('/:branch/:batchName/import', auth, upload.single('file'), async (re
       created: created.length,
       updated: updated.length,
       skipped,
+      duplicateRecords: duplicateRecords.length,
+      rowErrors,
       createdIds: created.map(x => x._id),
       updatedIds: updated.map(x => x._id),
     });

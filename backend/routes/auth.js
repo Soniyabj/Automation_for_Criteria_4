@@ -7,6 +7,20 @@ const User = require('../models/User');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_secret_key'; // from .env
 
+router.post('/logout', (_req, res) => {
+  res.json({ message: 'Logged out successfully' });
+});
+
+router.get('/me', require('../middleware/auth'), async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('_id email role');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to retrieve session' });
+  }
+});
+
 router.post('/register', async (req, res) => {
   try {
     const { email, password } = req.body;

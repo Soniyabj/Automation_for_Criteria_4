@@ -2,7 +2,9 @@
 const mongoose = require('mongoose');
 
 const FinalResultSchema = new mongoose.Schema({
-  batchName: { type: String, required: true, index: true }, // keep as string (e.g. "2022")
+  batchName: { type: String, required: true, index: true },
+  batchId: { type: mongoose.Schema.Types.ObjectId, ref: 'Batch' },
+  branch: { type: String, required: true, default: 'INFORMATION SCIENCE AND ENGINEERING' },
   graduationYear: { type: Number, required: true, index: true },
 
   // admitted fields (various possible names supported)
@@ -24,9 +26,12 @@ const FinalResultSchema = new mongoose.Schema({
 
   total: { type: Number, default: 0 },
   totalStudents: { type: Number, default: 0 },
+  passedWithinStipulatedPeriod: { type: Number, min: 0 },
 
   // optional meta
-  notes: { type: String, default: "" }
+  notes: { type: String, default: "" },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 
 // convenience pre-save normalization

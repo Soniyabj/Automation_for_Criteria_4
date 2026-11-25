@@ -11,6 +11,8 @@ const batchRoutes = require("./routes/batches");
 const exportRoutes = require("./routes/export");
 const metricsRoutes = require("./routes/metrics"); // new metrics route
 const admissionRoutes = require('./routes/admission');
+const finalResultRoutes = require('./routes/finalResults');
+const placementRoutes = require('./routes/placements');
 
 
 const app = express();
@@ -20,7 +22,6 @@ app.use(cors());
 app.use(express.json());
 
 // Serve uploaded files and assets (logos)
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 app.use("/assets", express.static(path.join(__dirname, "assets"))); // <-- serve logos here
 
 // Default route
@@ -34,6 +35,8 @@ app.use("/api/batches", batchRoutes);
 app.use("/api/export", exportRoutes);
 app.use("/api/metrics", metricsRoutes); // mount metrics
 app.use('/api/admission', admissionRoutes);
+app.use('/api/final-results', finalResultRoutes);
+app.use('/api/placements', placementRoutes);
 app.use('/api', uploadsRouter);
 
 

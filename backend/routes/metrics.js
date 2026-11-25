@@ -7,6 +7,9 @@ const path = require('path');
 const fs = require('fs');
 
 const Student = require('../models/Student');
+const FinalResult = require('../models/FinalResult');
+const Batch = require('../models/Batch');
+const auth = require('../middleware/auth');
 
 /* ---------- Asset resolution (logos) ---------- */
 function findAsset(filename) {
@@ -179,6 +182,86 @@ function computeMetricsFromStudents(students) {
   };
 }
 
+async function resolveSuccessRateResults(batchName, lyg, branch) {
+  const years = [lyg, lyg - 1, lyg - 2];
+  const results = [];
+
+  for (const year of years) {
+    const officialQuery = {
+      batchName: String(batchName),
+      graduationYear: year,
+    };
+    if (branch) officialQuery.branch = branch;
+
+    const official = await FinalResult.findOne(officialQuery).lean();
+    if (official) {
+      const X = Number(official.admitted || official.admittedCount || official.admissionCount || 0);
+      const excluded = Number(official.excluded || official.excludedCount || 0);
+      const Y_withoutBacklogs = Number(
+        official.passed || official.passedCount || official.totalPassed || 0
+      );
+      const Y_stipulated = Number(
+        official.passedWithinStipulatedPeriod ?? Y_withoutBacklogs
+      );
+      results.push({
+        graduationYear: year,
+        source: 'FinalResult',
+        finalResultId: official._id,
+        regularCount: 0,
+        inCOCCount: 0,
+        inCOBCount: 0,
+        lateralCount: 0,
+        X,
+        excluded,
+        Y_withoutBacklogs,
+        Y_stipulated,
+        SI_noBacklog: X > 0 ? Y_withoutBacklogs / X : 0,
+        SI: X > 0 ? Y_stipulated / X : 0,
+        official,
+      });
+    } else {
+      const students = await fetchStudentPoolForBatch(String(year), branch);
+      results.push({
+        graduationYear: year,
+        source: 'student-fallback',
+        ...computeMetricsFromStudents(students),
+      });
+    }
+  }
+
+  return results;
+}
+
+router.get('/dashboard', auth, async (req, res) => {
+  try {
+    const [batches, totalStudents, placed, admissions, passed, failed] = await Promise.all([
+      Batch.countDocuments(),
+      Student.countDocuments(),
+      Student.countDocuments({ placed: true }),
+      Student.countDocuments({
+        $or: [
+          { kCetRank: { $ne: null } },
+          { comedkRank: { $ne: null } },
+          { admissionType: { $nin: ['', null] } },
+        ],
+      }),
+      Student.countDocuments({ finalResult: 'Pass' }),
+      Student.countDocuments({ finalResult: 'Fail' }),
+    ]);
+    res.json({
+      totalBatches: batches,
+      totalStudents,
+      passedStudents: passed,
+      failedStudents: failed,
+      placedStudents: placed,
+      admissionRecords: admissions,
+    });
+  } catch (err) {
+    console.error('Dashboard metrics error:', err);
+    res.status(500).json({ message: 'Failed to build dashboard metrics' });
+  }
+});
+
 /* ---------------- JSON endpoint ---------------- */
 router.get('/success-rate', async (req, res) => {
   try {
@@ -190,17 +273,7 @@ router.get('/success-rate', async (req, res) => {
       return res.status(400).json({ message: 'Provide batchName and lyg (graduation year)' });
     }
 
-    const years = [lyg, lyg - 1, lyg - 2];
-    const results = [];
-
-    for (const year of years) {
-      const students = await fetchStudentPoolForBatch(String(year), branch);
-      const metrics = computeMetricsFromStudents(students);
-      results.push({
-        graduationYear: year,
-        ...metrics,
-      });
-    }
+    const results = await resolveSuccessRateResults(batchNameParam, lyg, branch);
 
     const [r1, r2, r3] = results;
     const avgSI_stipulated = (r1.SI + r2.SI + r3.SI) / 3;
@@ -234,17 +307,8 @@ router.get('/success-rate/pdf', async (req, res) => {
       return res.status(400).json({ message: 'Provide batchName and lyg (graduation year)' });
     }
 
+    const results = await resolveSuccessRateResults(batchNameParam, lyg, branch);
     const years = [lyg, lyg - 1, lyg - 2];
-    const results = [];
-
-    for (const year of years) {
-      const students = await fetchStudentPoolForBatch(String(year), branch);
-      const metrics = computeMetricsFromStudents(students);
-      results.push({
-        year,
-        ...metrics,
-      });
-    }
 
     const [r1, r2, r3] = results;
     const avgSI_stipulated = (r1.SI + r2.SI + r3.SI) / 3;
@@ -566,17 +630,8 @@ router.get('/success-rate/excel', async (req, res) => {
       return res.status(400).json({ message: 'Provide batchName and lyg (graduation year)' });
     }
 
+    const results = await resolveSuccessRateResults(batchNameParam, lyg, branch);
     const years = [lyg, lyg - 1, lyg - 2];
-    const results = [];
-
-    for (const year of years) {
-      const students = await fetchStudentPoolForBatch(String(year), branch);
-      const metrics = computeMetricsFromStudents(students);
-      results.push({
-        graduationYear: year,
-        ...metrics,
-      });
-    }
 
     const [r1, r2, r3] = results;
     const avgSI_stipulated = (r1.SI + r2.SI + r3.SI) / 3;
